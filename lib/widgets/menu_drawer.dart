@@ -1,3 +1,4 @@
+import 'package:db/screens/change_password_screen.dart';
 import 'package:db/screens/settings_screen.dart';
 import 'package:flutter/material.dart';
 import '../models/user.dart';
@@ -113,10 +114,18 @@ class MenuDrawer extends StatelessWidget {
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.lock_reset),
-                title: const Text('Сменить пароль'),
-                onTap: () => _showChangePassword(context),
-              ),
+  leading: const Icon(Icons.lock_reset),
+  title: const Text('Сменить пароль'),
+  onTap: () {
+    Navigator.pop(context); // закрываем drawer
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ChangePasswordScreen(currentUser: user),
+      ),
+    );
+  },
+),
             ],
           ),
 

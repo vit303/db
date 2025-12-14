@@ -22,17 +22,19 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<SettingsProvider>(
       builder: (context, settings, child) {
-        // Если не загружено - базовый app с индикатором
+        // Пока настройки не загружены — базовая тема без scaling
         if (!settings.isLoaded) {
           return MaterialApp(
             debugShowCheckedModeBanner: false,
             theme: lightTheme,
             darkTheme: darkTheme,
-            home: const Scaffold(body: Center(child: CircularProgressIndicator())),
+            home: const Scaffold(
+              body: Center(child: CircularProgressIndicator()),
+            ),
           );
         }
 
-        // Применяем fontFamily в основном theme (не зависит от fontSize)
+        // Базовая тема с fontFamily (без fontSizeFactor — чтобы избежать ассерта на старте)
         final baseLightTheme = lightTheme.copyWith(
           textTheme: lightTheme.textTheme.apply(
             fontFamily: settings.fontFamily,
@@ -62,12 +64,13 @@ class MyApp extends StatelessWidget {
             Locale('ru', 'RU'),
             Locale('en', 'US'),
           ],
-          // Builder для применения fontSizeFactor ПОСЛЕ локализации и установки theme
+          // Ключевой момент: builder применяется ПОСЛЕ локализации и базовой темы
+          // Здесь textTheme уже имеет конкретные fontSize, поэтому apply(fontSizeFactor) безопасен
           builder: (context, child) {
             return Theme(
               data: Theme.of(context).copyWith(
                 textTheme: Theme.of(context).textTheme.apply(
-                  fontSizeFactor: settings.fontSize / 16.0,
+                  fontSizeFactor: settings.fontSize / 16.0, // Теперь ассерт не сработает
                 ),
               ),
               child: child!,

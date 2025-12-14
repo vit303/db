@@ -4,21 +4,20 @@ import '../models/user.dart';
 class PostgresService {
   static Connection? _connection;
 
-  // Фиксированные данные для подключения к БД
-  static const String _host = 'localhost';
-  static const int _port = 5432;
-  static const String _database = 'postgres';        // ← твоя основная база
-  static const String _username = 'postgres';   // ← технический пользователь
-  static const String _password = 'postgres';   // ← твой пароль
+  // Публичные константы для доступа из других файлов (например, ChangePasswordScreen)
+  static const String host = 'localhost';
+  static const int port = 5432;
+  static const String database = 'postgres';        // твоя основная база
+  static const String techUsername = 'postgres';    // технический пользователь
+  static const String techPassword = 'postgres';    // пароль технического пользователя
 
   /// Аутентификация: проверяем, существует ли пользователь PostgreSQL с таким логином/паролем
   static Future<User?> authenticate(String username, String password) async {
     try {
-      // Пробуем подключиться под введёнными данными
       final testEndpoint = Endpoint(
-        host: _host,
-        port: _port,
-        database: _database,
+        host: host,
+        port: port,
+        database: database,
         username: username.trim(),
         password: password,
       );
@@ -28,9 +27,8 @@ class PostgresService {
         settings: const ConnectionSettings(sslMode: SslMode.disable),
       );
 
-      await testConn.close(); // Если дошли сюда — логин/пароль верные
+      await testConn.close();
 
-      // Возвращаем объект User на основе имени пользователя
       return User.fromPgLogin(username.trim());
     } catch (e) {
       print('Ошибка аутентификации: $e');
@@ -38,19 +36,19 @@ class PostgresService {
     }
   }
 
-  /// Основное подключение — всегда под техническим пользователем postgres
-  /// (чтобы приложение могло читать/писать данные независимо от роли пользователя)
+  /// Основное подключение — всегда под техническим пользователем
   static Future<Connection> getConnection() async {
+    // Убрали проверку на isClosed — её нет в текущей версии пакета
     if (_connection != null) {
       return _connection!;
     }
 
     final endpoint = Endpoint(
-      host: _host,
-      port: _port,
-      database: _database,
-      username: _username,
-      password: _password,
+      host: host,
+      port: port,
+      database: database,
+      username: techUsername,
+      password: techPassword,
     );
 
     _connection = await Connection.open(
@@ -58,7 +56,7 @@ class PostgresService {
       settings: const ConnectionSettings(sslMode: SslMode.disable),
     );
 
-    print('Подключено к БД под пользователем $_username');
+    print('Подключено к БД под пользователем $techUsername');
     return _connection!;
   }
 
