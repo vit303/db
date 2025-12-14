@@ -24,6 +24,7 @@ class ConferenceApp extends StatelessWidget {
         ),
       ),
       home: const AuthScreen(),
+
     );
   }
 }

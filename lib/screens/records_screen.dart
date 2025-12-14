@@ -1,7 +1,8 @@
+import 'package:flutter/gestures.dart';
+import 'package:flutter/material.dart';
 import 'package:db/models/user.dart';
 import 'package:db/services/postgres_service.dart';
 import 'package:db/widgets/record_card.dart';
-import 'package:flutter/material.dart';
 
 class RecordsScreen extends StatefulWidget {
   final UserRole userRole;
@@ -30,12 +31,7 @@ class _RecordsScreenState extends State<RecordsScreen> with SingleTickerProvider
     'Все',
     'Участники',
     'Конкурсные работы',
-    'Научные руководители',
     'Секции',
-    'Награды',
-    'Волонтеры',
-    'Жюри',
-    'Учебные заведения',
   ];
 
   final List<String> _tabs = [
@@ -43,37 +39,6 @@ class _RecordsScreenState extends State<RecordsScreen> with SingleTickerProvider
     'Участники',
     'Работы',
     'Секции',
-  ];
-
-  // Демо-данные на случай ошибки
-  final List<Map<String, dynamic>> _sampleData = [
-    {
-      'id': 1,
-      'type': 'Участник',
-      'title': 'Иванов Александр Петрович',
-      'subtitle': '10А класс, НГТУ, Новосибирск',
-      'description': 'Работа: "Разработка системы распознавания образов"\nEmail: a.ivanov@edu.nstu.ru\nТелефон: +79131234577',
-      'status': 'Подтвержден',
-      'date': '15.03.2025',
-      'color': Colors.blue,
-      'icon': Icons.person,
-      'badges': ['Онлайн', '10 класс'],
-      'actions': ['Просмотр', 'Редактировать', 'Выдать сертификат'],
-    },
-    {
-      'id': 2,
-      'type': 'Конкурсная работа',
-      'title': 'Разработка системы распознавания образов',
-      'subtitle': 'Секция: Информационные технологии',
-      'description': 'Автор: Иванов А.П.\nНаучный руководитель: Петров И.С.\nСсылка: https://drive.google.com/work1',
-      'status': 'На рассмотрении',
-      'date': '20.03.2025',
-      'color': Colors.green,
-      'icon': Icons.assignment,
-      'badges': ['IT секция', 'Ссылка приложена'],
-      'actions': ['Оценить', 'Просмотр работы', 'Назначить жюри'],
-    },
-    // Добавьте остальные демо-записи по желанию
   ];
 
   @override
@@ -100,75 +65,90 @@ class _RecordsScreenState extends State<RecordsScreen> with SingleTickerProvider
     _records.clear();
 
     try {
+      // Участники + работа
       final participants = await PostgresService.executeQuery('''
         SELECT 
-          p.id, p.surname, p.name, p.fathername, p.class_number,
+          p.id AS participant_id, p.surname, p.name, p.fathername, p.class_number,
           c.city_name, ei.educational_institution_name,
-          cw.title AS work_title, p.participant_format
-        FROM Participant p
-        LEFT JOIN City c ON p.city_id = c.id
-        LEFT JOIN Educational_institution ei ON p.educational_institution_id = ei.id
-        LEFT JOIN Competitive_work cw ON p.competitive_work_id = cw.id
+          p.participant_format, p.email, p.phone_number, p.consent_link,
+          cw.id AS work_id, cw.title AS work_title, cw.works_link,
+          s.section_name,
+          ss.surname AS supervisor_surname, ss.name AS supervisor_name
+        FROM participant p
+        LEFT JOIN city c ON p.city_id = c.id
+        LEFT JOIN educational_institution ei ON p.educational_institution_id = ei.id
+        LEFT JOIN competitive_work cw ON p.competitive_work_id = cw.id
+        LEFT JOIN sections s ON cw.section_id = s.id
+        LEFT JOIN scientific_supervisor ss ON cw.scientific_supervisor_id = ss.id
         ORDER BY p.surname, p.name
       ''');
 
+      // Конкурсные работы
       final works = await PostgresService.executeQuery('''
         SELECT 
-          cw.id, cw.title,
+          cw.id, cw.title, cw.works_link,
           s.section_name,
-          p.surname AS participant_surname, p.name AS participant_name,
+          p.surname AS participant_surname, p.name AS participant_name, p.fathername AS participant_fathername,
           ss.surname AS supervisor_surname, ss.name AS supervisor_name
-        FROM Competitive_work cw
-        LEFT JOIN Sections s ON cw.section_id = s.id
-        LEFT JOIN Participant p ON cw.participant_id = p.id
-        LEFT JOIN Scientific_supervisor ss ON cw.scientific_supervisor_id = ss.id
+        FROM competitive_work cw
+        LEFT JOIN sections s ON cw.section_id = s.id
+        LEFT JOIN participant p ON cw.participant_id = p.id
+        LEFT JOIN scientific_supervisor ss ON cw.scientific_supervisor_id = ss.id
         ORDER BY cw.title
       ''');
 
+      // Секции
       final sections = await PostgresService.executeQuery('''
         SELECT 
-          s.id, s.section_name, s.description, s.connection_link, s.auditorium,
-          COUNT(DISTINCT cw.id) AS work_count,
-          COUNT(DISTINCT v.id) AS volunteer_count
-        FROM Sections s
-        LEFT JOIN Competitive_work cw ON s.id = cw.section_id
-        LEFT JOIN Volunteers_on_sections vs ON s.id = vs.section_id
-        LEFT JOIN Volunteer v ON vs.volunteer_id = v.id
-        GROUP BY s.id
+          s.id, s.section_name, s.description, s.connection_link, s.auditorium
+        FROM sections s
         ORDER BY s.section_name
       ''');
 
       // Участники
       for (final p in participants) {
+        final hasWork = p['work_id'] != null;
+
         _records.add({
-          'id': p['id'],
+          'id': p['participant_id'],
+          'table': 'participant',
           'type': 'Участник',
           'title': '${p['surname']} ${p['name']} ${p['fathername'] ?? ''}'.trim(),
           'subtitle': '${p['class_number']} класс, ${p['educational_institution_name'] ?? 'Не указано'}',
-          'description': 'Город: ${p['city_name'] ?? 'Не указан'}\nРабота: ${p['work_title'] ?? 'Не подана'}',
-          'status': p['work_title'] != null ? 'Работа подана' : 'Зарегистрирован',
-          'date': 'Зарегистрирован',
+          'description': 'Город: ${p['city_name'] ?? 'Не указан'}\n'
+              '${hasWork ? 'Работа: ${p['work_title']}\nСекция: ${p['section_name'] ?? 'Не указана'}\nРуководитель: ${p['supervisor_surname']} ${p['supervisor_name']}\nСсылка: ${p['works_link'] ?? 'Нет'}' : 'Работа: Не подана'}\n'
+              'Email: ${p['email'] ?? '—'}\n'
+              'Телефон: ${p['phone_number'] ?? '—'}\n'
+              'Согласие: ${p['consent_link'] != null ? 'Есть' : 'Нет'}',
+          'status': hasWork ? 'Работа подана' : 'Зарегистрирован',
           'color': Colors.blue,
           'icon': Icons.person,
-          'badges': [p['participant_format'] ?? 'Очный', p['class_number'] ?? ''],
-          'actions': ['Просмотр', 'Редактировать', 'Сертификат'],
+          'badges': [
+            p['participant_format'] ?? 'Очный',
+            p['class_number'] ?? '',
+          ],
+          'raw_data': p,
+          'linked_work_id': p['work_id'],
+          'work_title': hasWork ? p['work_title'] : null,
         });
       }
 
-      // Работы
+      // Конкурсные работы
       for (final w in works) {
         _records.add({
           'id': w['id'],
+          'table': 'competitive_work',
           'type': 'Конкурсная работа',
           'title': w['title'],
-          'subtitle': 'Секция: ${w['section_name'] ?? 'Не указана'}\nУчастник: ${w['participant_surname']} ${w['participant_name']}',
-          'description': 'Руководитель: ${w['supervisor_surname']} ${w['supervisor_name']}',
+          'subtitle': 'Секция: ${w['section_name'] ?? 'Не указана'}',
+          'description': 'Участник: ${w['participant_surname']} ${w['participant_name']} ${w['participant_fathername'] ?? ''}\n'
+              'Руководитель: ${w['supervisor_surname']} ${w['supervisor_name']}\n'
+              'Ссылка: ${w['works_link'] ?? 'Нет'}',
           'status': 'На рассмотрении',
-          'date': 'Подана',
           'color': Colors.green,
           'icon': Icons.assignment,
           'badges': [w['section_name'] ?? 'Без секции'],
-          'actions': ['Оценить', 'Просмотр', 'Жюри'],
+          'raw_data': w,
         });
       }
 
@@ -176,24 +156,25 @@ class _RecordsScreenState extends State<RecordsScreen> with SingleTickerProvider
       for (final s in sections) {
         _records.add({
           'id': s['id'],
+          'table': 'sections',
           'type': 'Секция',
           'title': s['section_name'],
           'subtitle': 'Аудитория: ${s['auditorium'] ?? 'Онлайн'}',
-          'description': '${s['description'] ?? ''}\nСсылка: ${s['connection_link'] ?? 'Нет'}',
+          'description': '${s['description'] ?? 'Нет описания'}\nСсылка: ${s['connection_link'] ?? 'Нет'}',
           'status': 'Активна',
-          'date': 'Создана',
           'color': Colors.purple,
           'icon': Icons.category,
-          'badges': ['${s['work_count']} работ', '${s['volunteer_count']} волонтёров'],
-          'actions': ['Расписание', 'Участники', 'Настройки'],
+          'badges': ['Секция'],
+          'raw_data': s,
         });
       }
 
       setState(() => _filterRecords());
     } catch (e) {
-      print('Ошибка загрузки из БД: $e');
-      _records.addAll(_sampleData);
-      setState(() => _filterRecords());
+      print('Ошибка загрузки данных: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Ошибка: $e'), backgroundColor: Colors.red),
+      );
     } finally {
       setState(() => _isLoading = false);
     }
@@ -217,8 +198,6 @@ class _RecordsScreenState extends State<RecordsScreen> with SingleTickerProvider
       case 'Секции':
         targetType = 'Секция';
         break;
-      default:
-        targetType = _selectedFilter;
     }
 
     _filteredRecords.clear();
@@ -230,20 +209,258 @@ class _RecordsScreenState extends State<RecordsScreen> with SingleTickerProvider
 
     final query = _searchController.text.toLowerCase();
     return _filteredRecords.where((r) {
-      final title = (r['title'] as String?) ?? '';
-      final subtitle = (r['subtitle'] as String?) ?? '';
-      final description = (r['description'] as String?) ?? '';
-      return title.toLowerCase().contains(query) ||
-          subtitle.toLowerCase().contains(query) ||
-          description.toLowerCase().contains(query);
+      return (r['title'] as String).toLowerCase().contains(query) ||
+          (r['subtitle'] as String).toLowerCase().contains(query) ||
+          (r['description'] as String).toLowerCase().contains(query);
     }).toList();
   }
 
-  void _refreshData() async {
-    await _loadRecords();
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Данные обновлены'), backgroundColor: Colors.green),
+  // Детальный просмотр с кликабельной ссылкой на работу
+  void _showDetails(Map<String, dynamic> record) {
+    final lines = record['description'].split('\n');
+    final hasWork = record['linked_work_id'] != null;
+    final workTitle = record['work_title'];
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(record['title']),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: lines.map<Widget>((line) {
+              if (hasWork && line.startsWith('Работа:')) {
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: RichText(
+                    text: TextSpan(
+                      style: const TextStyle(color: Colors.black, fontSize: 14),
+                      children: [
+                        const TextSpan(text: 'Работа: '),
+                        TextSpan(
+                          text: workTitle,
+                          style: const TextStyle(color: Colors.blue, decoration: TextDecoration.underline),
+                          recognizer: TapGestureRecognizer()
+                            ..onTap = () {
+                              Navigator.pop(context);
+                              _editWork(record['linked_work_id']);
+                            },
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Text(line, style: const TextStyle(fontSize: 14)),
+              );
+            }).toList(),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Закрыть')),
+        ],
+      ),
     );
+  }
+
+  // Редактирование конкурсной работы (отдельный метод)
+  Future<void> _editWork(int? workId) async {
+    if (workId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Работа не найдена'), backgroundColor: Colors.red),
+      );
+      return;
+    }
+
+    final workData = await PostgresService.executeQuery('''
+      SELECT id, title, works_link
+      FROM competitive_work
+      WHERE id = $workId
+    ''');
+
+    if (workData.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Работа не найдена'), backgroundColor: Colors.red),
+      );
+      return;
+    }
+
+    final work = workData.first;
+    final titleController = TextEditingController(text: work['title']?.toString() ?? '');
+    final linkController = TextEditingController(text: work['works_link']?.toString() ?? '');
+
+    final success = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Редактирование конкурсной работы'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: titleController,
+              decoration: const InputDecoration(
+                labelText: 'Название работы',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: linkController,
+              decoration: const InputDecoration(
+                labelText: 'Ссылка на работу',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Отмена')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Сохранить'),
+          ),
+        ],
+      ),
+    );
+
+    if (success != true) return;
+
+    final params = {
+      'id': workId,
+      'title': titleController.text.trim(),
+      'works_link': linkController.text.trim().isEmpty ? null : linkController.text.trim(),
+    };
+
+    final updateSuccess = await PostgresService.executeUpdate('''
+      UPDATE competitive_work
+      SET title = @title, works_link = @works_link
+      WHERE id = @id
+    ''', params);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(updateSuccess ? 'Работа обновлена' : 'Ошибка обновления'),
+        backgroundColor: updateSuccess ? Colors.green : Colors.red,
+      ),
+    );
+
+    if (updateSuccess) _loadRecords();
+  }
+
+  // Универсальное редактирование (только для participant и sections)
+  void _editRecord(Map<String, dynamic> record) async {
+    if (record['type'] == 'Конкурсная работа') {
+      _editWork(record['id']);
+      return;
+    }
+
+    final table = record['table'] as String;
+    final rawData = record['raw_data'] as Map<String, dynamic>;
+
+    final editableFields = rawData.keys.where((k) => k != 'id').toList();
+    final controllers = <String, TextEditingController>{};
+
+    for (var field in editableFields) {
+      controllers[field] = TextEditingController(text: rawData[field]?.toString() ?? '');
+    }
+
+    final success = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Редактирование: ${record['type']}'),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: 400,
+          child: ListView(
+            children: editableFields.map((field) {
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: TextField(
+                  controller: controllers[field],
+                  decoration: InputDecoration(
+                    labelText: field.toUpperCase(),
+                    border: const OutlineInputBorder(),
+                  ),
+                  maxLines: field.contains('description') || field.contains('link') ? 3 : 1,
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Отмена')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Сохранить'),
+          ),
+        ],
+      ),
+    );
+
+    if (success != true) return;
+
+    final setParts = <String>[];
+    final params = <String, dynamic>{'id': record['id']};
+
+    for (var field in editableFields) {
+      final value = controllers[field]!.text.trim();
+      params[field] = value.isEmpty ? null : value;
+      setParts.add('$field = @$field');
+    }
+
+    final sql = 'UPDATE $table SET ${setParts.join(', ')} WHERE id = @id';
+
+    final updateSuccess = await PostgresService.executeUpdate(sql, params);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(updateSuccess ? 'Запись обновлена' : 'Ошибка обновления'),
+        backgroundColor: updateSuccess ? Colors.green : Colors.red,
+      ),
+    );
+
+    if (updateSuccess) _loadRecords();
+  }
+
+  // Удаление
+  void _deleteRecord(Map<String, dynamic> record) async {
+    final table = record['table'] as String;
+    final id = record['id'];
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Удалить запись?'),
+        content: Text('Удалить "${record['title']}"?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Отмена')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Удалить'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    final success = await PostgresService.executeUpdate(
+      'DELETE FROM $table WHERE id = @id',
+      {'id': id},
+    );
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(success ? 'Запись удалена' : 'Ошибка удаления'),
+        backgroundColor: success ? Colors.green : Colors.red,
+      ),
+    );
+
+    if (success) _loadRecords();
   }
 
   @override
@@ -251,11 +468,16 @@ class _RecordsScreenState extends State<RecordsScreen> with SingleTickerProvider
     final searchedRecords = _getSearchedRecords();
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Записи')),
+      appBar: AppBar(
+        title: const Text('Записи конференции'),
+        actions: [
+          IconButton(icon: const Icon(Icons.refresh), onPressed: _loadRecords),
+        ],
+      ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : searchedRecords.isEmpty
-              ? const Center(child: Text('Нет данных'))
+              ? const Center(child: Text('Нет записей'))
               : ListView.builder(
                   itemCount: searchedRecords.length,
                   itemBuilder: (context, index) {
@@ -263,25 +485,17 @@ class _RecordsScreenState extends State<RecordsScreen> with SingleTickerProvider
                     return RecordCard(
                       record: record,
                       userRole: widget.userRole,
-                      onTap: () {
-                        // _showRecordDetails(record);
-                      },
-                      onEdit: widget.userRole == UserRole.admin || widget.userRole == UserRole.moderator
-                          ? () {
-                              // _showEditDialog(record);
-                            }
+                      onTap: () => _showDetails(record),
+                      onEdit: (widget.userRole == UserRole.admin || widget.userRole == UserRole.moderator)
+                          ? () => _editRecord(record)
                           : null,
-                      onDelete: widget.userRole == UserRole.admin
-                          ? () {
-                              // _showDeleteDialog(record);
-                            }
-                          : null,
+                      onDelete: widget.userRole == UserRole.admin ? () => _deleteRecord(record) : null,
                     );
                   },
                 ),
       floatingActionButton: (widget.userRole == UserRole.admin || widget.userRole == UserRole.moderator)
           ? FloatingActionButton(
-              onPressed: _refreshData,
+              onPressed: _loadRecords,
               child: const Icon(Icons.refresh),
             )
           : null,
