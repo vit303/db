@@ -1,4 +1,5 @@
 import 'package:db/models/user.dart';
+import 'package:db/screens/dashboard_screen.dart';
 import 'package:db/screens/records_screen.dart';
 import 'package:db/widgets/menu_drawer.dart';
 import 'package:flutter/material.dart';
@@ -36,25 +37,8 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   Widget _buildDashboardScreen() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(Icons.dashboard, size: 100, color: Colors.blueGrey),
-          const SizedBox(height: 20),
-          Text(
-            'Панель управления',
-            style: Theme.of(context).textTheme.headlineMedium,
-          ),
-          const SizedBox(height: 10),
-          Text(
-            'Добро пожаловать, ${_currentUser.fullName}',
-            style: Theme.of(context).textTheme.bodyLarge,
-          ),
-        ],
-      ),
-    );
-  }
+  return const DashboardScreen();
+}
 
   Widget _buildProfileScreen() {
     return Padding(
