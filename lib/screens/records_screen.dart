@@ -19,20 +19,12 @@ class RecordsScreen extends StatefulWidget {
 }
 
 class _RecordsScreenState extends State<RecordsScreen> with SingleTickerProviderStateMixin {
-  final List<Map<String, dynamic>> _records = [];
-  final List<Map<String, dynamic>> _filteredRecords = [];
-  String _selectedFilter = 'Все';
+  final List<Map<String, dynamic>> _allRecords = [];
+  List<Map<String, dynamic>> _displayedRecords = [];
+  String _selectedTab = 'Все';
   final TextEditingController _searchController = TextEditingController();
   bool _isLoading = false;
   late TabController _tabController;
-  int _activeTab = 0;
-
-  final List<String> _filters = [
-    'Все',
-    'Участники',
-    'Конкурсные работы',
-    'Секции',
-  ];
 
   final List<String> _tabs = [
     'Все',
@@ -45,24 +37,59 @@ class _RecordsScreenState extends State<RecordsScreen> with SingleTickerProvider
   void initState() {
     super.initState();
     _tabController = TabController(length: _tabs.length, vsync: this);
-    _selectedFilter = widget.initialFilter ?? 'Все';
+    _selectedTab = widget.initialFilter ?? 'Все';
+    _tabController.index = _tabs.indexOf(_selectedTab);
     _loadRecords();
+    _searchController.addListener(_applySearch);
     _tabController.addListener(_handleTabChange);
   }
 
   void _handleTabChange() {
     if (!_tabController.indexIsChanging) {
       setState(() {
-        _activeTab = _tabController.index;
-        _selectedFilter = _tabs[_activeTab];
-        _filterRecords();
+        _selectedTab = _tabs[_tabController.index];
+        _applyFilterAndSearch();
       });
     }
   }
 
+  void _applySearch() {
+    setState(() {
+      _applyFilterAndSearch();
+    });
+  }
+
+  void _applyFilterAndSearch() {
+    List<Map<String, dynamic>> temp = List.from(_allRecords);
+
+    // Фильтр по табу
+    if (_selectedTab != 'Все') {
+      final targetType = switch (_selectedTab) {
+        'Участники' => 'Участник',
+        'Работы' => 'Конкурсная работа',
+        'Секции' => 'Секция',
+        _ => '',
+      };
+      temp = temp.where((r) => r['type'] == targetType).toList();
+    }
+
+    // Поиск
+    if (_searchController.text.isNotEmpty) {
+      final query = _searchController.text.toLowerCase();
+      temp = temp.where((r) {
+        return (r['title']?.toString() ?? '').toLowerCase().contains(query) ||
+            (r['subtitle']?.toString() ?? '').toLowerCase().contains(query) ||
+            (r['description']?.toString() ?? '').toLowerCase().contains(query) ||
+            (r['status']?.toString() ?? '').toLowerCase().contains(query);
+      }).toList();
+    }
+
+    _displayedRecords = temp;
+  }
+
   Future<void> _loadRecords() async {
     setState(() => _isLoading = true);
-    _records.clear();
+    _allRecords.clear();
 
     try {
       // Участники + работа
@@ -109,7 +136,7 @@ class _RecordsScreenState extends State<RecordsScreen> with SingleTickerProvider
       for (final p in participants) {
         final hasWork = p['work_id'] != null;
 
-        _records.add({
+        _allRecords.add({
           'id': p['participant_id'],
           'table': 'participant',
           'type': 'Участник',
@@ -135,7 +162,7 @@ class _RecordsScreenState extends State<RecordsScreen> with SingleTickerProvider
 
       // Конкурсные работы
       for (final w in works) {
-        _records.add({
+        _allRecords.add({
           'id': w['id'],
           'table': 'competitive_work',
           'type': 'Конкурсная работа',
@@ -154,7 +181,7 @@ class _RecordsScreenState extends State<RecordsScreen> with SingleTickerProvider
 
       // Секции
       for (final s in sections) {
-        _records.add({
+        _allRecords.add({
           'id': s['id'],
           'table': 'sections',
           'type': 'Секция',
@@ -169,7 +196,7 @@ class _RecordsScreenState extends State<RecordsScreen> with SingleTickerProvider
         });
       }
 
-      setState(() => _filterRecords());
+      _applyFilterAndSearch();
     } catch (e) {
       print('Ошибка загрузки данных: $e');
       ScaffoldMessenger.of(context).showSnackBar(
@@ -178,41 +205,6 @@ class _RecordsScreenState extends State<RecordsScreen> with SingleTickerProvider
     } finally {
       setState(() => _isLoading = false);
     }
-  }
-
-  void _filterRecords() {
-    if (_selectedFilter == 'Все') {
-      _filteredRecords.clear();
-      _filteredRecords.addAll(_records);
-      return;
-    }
-
-    String targetType = '';
-    switch (_selectedFilter) {
-      case 'Участники':
-        targetType = 'Участник';
-        break;
-      case 'Конкурсные работы':
-        targetType = 'Конкурсная работа';
-        break;
-      case 'Секции':
-        targetType = 'Секция';
-        break;
-    }
-
-    _filteredRecords.clear();
-    _filteredRecords.addAll(_records.where((r) => r['type'] == targetType).toList());
-  }
-
-  List<Map<String, dynamic>> _getSearchedRecords() {
-    if (_searchController.text.isEmpty) return _filteredRecords;
-
-    final query = _searchController.text.toLowerCase();
-    return _filteredRecords.where((r) {
-      return (r['title'] as String).toLowerCase().contains(query) ||
-          (r['subtitle'] as String).toLowerCase().contains(query) ||
-          (r['description'] as String).toLowerCase().contains(query);
-    }).toList();
   }
 
   // Детальный просмотр с кликабельной ссылкой на работу
@@ -266,14 +258,9 @@ class _RecordsScreenState extends State<RecordsScreen> with SingleTickerProvider
     );
   }
 
-  // Редактирование конкурсной работы (отдельный метод)
+  // Редактирование конкурсной работы
   Future<void> _editWork(int? workId) async {
-    if (workId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Работа не найдена'), backgroundColor: Colors.red),
-      );
-      return;
-    }
+    if (workId == null) return;
 
     final workData = await PostgresService.executeQuery('''
       SELECT id, title, works_link
@@ -281,12 +268,7 @@ class _RecordsScreenState extends State<RecordsScreen> with SingleTickerProvider
       WHERE id = $workId
     ''');
 
-    if (workData.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Работа не найдена'), backgroundColor: Colors.red),
-      );
-      return;
-    }
+    if (workData.isEmpty) return;
 
     final work = workData.first;
     final titleController = TextEditingController(text: work['title']?.toString() ?? '');
@@ -301,27 +283,18 @@ class _RecordsScreenState extends State<RecordsScreen> with SingleTickerProvider
           children: [
             TextField(
               controller: titleController,
-              decoration: const InputDecoration(
-                labelText: 'Название работы',
-                border: OutlineInputBorder(),
-              ),
+              decoration: const InputDecoration(labelText: 'Название работы', border: OutlineInputBorder()),
             ),
             const SizedBox(height: 12),
             TextField(
               controller: linkController,
-              decoration: const InputDecoration(
-                labelText: 'Ссылка на работу',
-                border: OutlineInputBorder(),
-              ),
+              decoration: const InputDecoration(labelText: 'Ссылка на работу', border: OutlineInputBorder()),
             ),
           ],
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Отмена')),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Сохранить'),
-          ),
+          ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Сохранить')),
         ],
       ),
     );
@@ -341,16 +314,13 @@ class _RecordsScreenState extends State<RecordsScreen> with SingleTickerProvider
     ''', params);
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(updateSuccess ? 'Работа обновлена' : 'Ошибка обновления'),
-        backgroundColor: updateSuccess ? Colors.green : Colors.red,
-      ),
+      SnackBar(content: Text(updateSuccess ? 'Работа обновлена' : 'Ошибка'), backgroundColor: updateSuccess ? Colors.green : Colors.red),
     );
 
     if (updateSuccess) _loadRecords();
   }
 
-  // Универсальное редактирование (только для participant и sections)
+  // Редактирование основной записи
   void _editRecord(Map<String, dynamic> record) async {
     if (record['type'] == 'Конкурсная работа') {
       _editWork(record['id']);
@@ -380,10 +350,7 @@ class _RecordsScreenState extends State<RecordsScreen> with SingleTickerProvider
                 padding: const EdgeInsets.symmetric(vertical: 4),
                 child: TextField(
                   controller: controllers[field],
-                  decoration: InputDecoration(
-                    labelText: field.toUpperCase(),
-                    border: const OutlineInputBorder(),
-                  ),
+                  decoration: InputDecoration(labelText: field.toUpperCase(), border: OutlineInputBorder()),
                   maxLines: field.contains('description') || field.contains('link') ? 3 : 1,
                 ),
               );
@@ -392,10 +359,7 @@ class _RecordsScreenState extends State<RecordsScreen> with SingleTickerProvider
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Отмена')),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Сохранить'),
-          ),
+          ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Сохранить')),
         ],
       ),
     );
@@ -416,10 +380,7 @@ class _RecordsScreenState extends State<RecordsScreen> with SingleTickerProvider
     final updateSuccess = await PostgresService.executeUpdate(sql, params);
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(updateSuccess ? 'Запись обновлена' : 'Ошибка обновления'),
-        backgroundColor: updateSuccess ? Colors.green : Colors.red,
-      ),
+      SnackBar(content: Text(updateSuccess ? 'Запись обновлена' : 'Ошибка'), backgroundColor: updateSuccess ? Colors.green : Colors.red),
     );
 
     if (updateSuccess) _loadRecords();
@@ -454,10 +415,7 @@ class _RecordsScreenState extends State<RecordsScreen> with SingleTickerProvider
     );
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(success ? 'Запись удалена' : 'Ошибка удаления'),
-        backgroundColor: success ? Colors.green : Colors.red,
-      ),
+      SnackBar(content: Text(success ? 'Запись удалена' : 'Ошибка'), backgroundColor: success ? Colors.green : Colors.red),
     );
 
     if (success) _loadRecords();
@@ -465,23 +423,71 @@ class _RecordsScreenState extends State<RecordsScreen> with SingleTickerProvider
 
   @override
   Widget build(BuildContext context) {
-    final searchedRecords = _getSearchedRecords();
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('Записи конференции'),
         actions: [
           IconButton(icon: const Icon(Icons.refresh), onPressed: _loadRecords),
         ],
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(120),
+          child: Column(
+            children: [
+              TabBar(
+                controller: _tabController,
+                isScrollable: true,
+                tabs: _tabs.map((tab) => Tab(text: tab)).toList(),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                child: TextField(
+                  controller: _searchController,
+                  decoration: InputDecoration(
+                    hintText: 'Поиск по записям...',
+                    prefixIcon: const Icon(Icons.search),
+                    suffixIcon: _searchController.text.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear),
+                            onPressed: _searchController.clear,
+                          )
+                        : null,
+                    filled: true,
+                    fillColor: Colors.white,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(30),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : searchedRecords.isEmpty
-              ? const Center(child: Text('Нет записей'))
+          : _displayedRecords.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        _searchController.text.isEmpty ? Icons.inbox : Icons.search_off,
+                        size: 80,
+                        color: Colors.grey[400],
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        _searchController.text.isEmpty ? 'Нет записей' : 'Ничего не найдено',
+                        style: TextStyle(fontSize: 18, color: Colors.grey[600]),
+                      ),
+                    ],
+                  ),
+                )
               : ListView.builder(
-                  itemCount: searchedRecords.length,
+                  itemCount: _displayedRecords.length,
                   itemBuilder: (context, index) {
-                    final record = searchedRecords[index];
+                    final record = _displayedRecords[index];
                     return RecordCard(
                       record: record,
                       userRole: widget.userRole,
@@ -505,6 +511,7 @@ class _RecordsScreenState extends State<RecordsScreen> with SingleTickerProvider
   @override
   void dispose() {
     _tabController.dispose();
+    _searchController.removeListener(_applySearch);
     _searchController.dispose();
     super.dispose();
   }

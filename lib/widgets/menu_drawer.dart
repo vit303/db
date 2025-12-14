@@ -1,3 +1,4 @@
+import 'package:db/screens/settings_screen.dart';
 import 'package:flutter/material.dart';
 import '../models/user.dart';
 import '../screens/crud_screen.dart';
@@ -104,9 +105,12 @@ class MenuDrawer extends StatelessWidget {
             title: const Text('Разное'),
             children: [
               ListTile(
-                leading: const Icon(Icons.palette),
+                leading: const Icon(Icons.settings),
                 title: const Text('Настройка'),
-                onTap: () => _showSettings(context),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
+                },
               ),
               ListTile(
                 leading: const Icon(Icons.lock_reset),

@@ -9,8 +9,10 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localization: ^0.3.3
   http: ^1.6.0
   postgres: ^3.4.8
+  provider: ^6.1.5+1
   shared_preferences: ^2.5.3
 
 dev_dependencies:
